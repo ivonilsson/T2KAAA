@@ -1,5 +1,5 @@
 # Sprint 1
-This document details the acheivables in the first sprint
+This document details the achievables in the first sprint
 
 ## Motivation
 fill
