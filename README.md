@@ -1,2 +1,3 @@
 # T2KAAA
-self-supervised brain cancer classsification and detection
+## Documentation
+- [Sprint 1](sprint1.md)
