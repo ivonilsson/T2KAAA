@@ -1,0 +1,40 @@
+# Base image with CUDA 11.7 and PyTorch
+FROM nvidia/cuda:11.7.1-cudnn8-runtime-ubuntu22.04
+
+# Set working directory
+WORKDIR /workspace
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git wget curl vim build-essential python3-pip python3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy StableVITON code into container
+COPY . /workspace
+
+# Upgrade pip
+RUN python3 -m pip install --upgrade pip
+
+# Install Python packages
+RUN pip install torch==2.0.0+cu117 torchvision==0.15.1+cu117 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu117
+RUN pip install pytorch-lightning==1.5.0
+RUN pip install einops
+RUN pip install opencv-python==4.7.0.72
+RUN pip install matplotlib
+RUN pip install omegaconf
+RUN pip install albumentations
+RUN pip install transformers==4.33.2
+RUN pip install xformers==0.0.19
+RUN pip install triton==2.0.0
+RUN pip install open-clip-torch==2.19.0
+RUN pip install diffusers==0.20.2
+RUN pip install scipy==1.10.1
+RUN apt-get update && apt-get install -y ipython
+
+# Optional: SSH setup for remote access
+RUN useradd -ms /bin/bash demo && echo "demo:AAAAAAAA" | chpasswd
+RUN mkdir /var/run/sshd
+EXPOSE 22
+
+# Default command: start SSH server
+CMD ["/usr/sbin/sshd","-D"]
