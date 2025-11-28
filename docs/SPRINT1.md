@@ -13,12 +13,20 @@ This is not a silver bullet for the challenge at hand, but it is a step in the r
 [nrf]: https://nrf.com/research/2025-retail-returns-landscape
 
 ## Pre-trained model / method
-Use a pre-trained Virtual Try-On (VTON) diffusion model (most likely IDM-VTON on huggingface[🤗][huggingface]). Two inputs: image of person and image of garment to fit. Output: image of fitted garment on person. Evaluate with FID for realism, CLIP similarity for garment and text alignment, and VLM preference tests
+### Objective
+Given:
+- a person image P
+- a garment image G
+- optional text description T
 
-[huggingface]: https://huggingface.co/yisol/IDM-VTON
+Generate:
+- a try-on image Y = f(P, G, T) where the output should preserve the person identity/pose and garment details.
+
+### Model choice
+We plan to use IDM-VTON (ECCV 2024), a diffusion-based virtual try-on model. We chose it because it is a recent research model specifically targeting garment fidelity and realistic try-on “in the wild”, and because official code/checkpoints are available for reproducible experimentation.
 
 ## Dataset
-If needed we are going to use the same datasets IDM-VTON was trained on namely VITON-HD and DressCode. While they are not open source, they are available to us.
+If needed, we will use datasets commonly used in VTON research, such as VITON-HD and DressCode. These datasets provide paired person/garment images and annotations that support evaluation of try-on realism and garment fidelity. While our project does not really require re-training or fine-tuning any models since IDM-VTON is developed for our specific purpose, we will most likely not use any of this data for that purpose.
 
 ### Checklist
 - [x] Student group of 3 members created and communicated to Teachers
