@@ -13,25 +13,24 @@
 ## Requirements
 This project currently **requires Python 3.10** for the IDM-VTON integration to work.
 
-On Windows it is recommended to use a dedicated virtual environment:
-
+Use virtual environment:
+Linux
 ```bash
-# From project root
-py -3.10 -m venv venv
+python -3.10 -m venv venv
+source venv/bin/activate
+```
+Windows
+```bash
+python -3.10 -m venv venv
 venv\Scripts\activate
 ```
 
-If you are on another OS or CPU-only setup, see the official install guide:
-https://pytorch.org/get-started/locally/
-
-On Windows, install GPU-enabled PyTorch first:
-
+Install pytorch
 ```bash
 pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118
 ```
 
 Then install the remaining dependencies:
-
 ```bash
 pip install -r requirements_vton.txt
 ```
@@ -44,39 +43,24 @@ IDM-VTON is included as a git submodule under `third_party/IDM-VTON`. After pull
 - DensePose, OpenPose, human parsing checkpoints – ~1 GB total
 - Virtual environment and auxiliary packages – ~3–4 GB
 
-Place the required checkpoints as follows:
-
-```
-third_party/IDM-VTON/ckpt/
-  densepose/model_final_162be9.pkl
-  humanparsing/parsing_atr.onnx
-  humanparsing/parsing_lip.onnx
-  openpose/ckpts/body_pose_model.pth
-```
-
-Download the real files (the repo only includes placeholders) from Hugging Face:
-
-For Windows:
 ```bash
-curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_atr.onnx" -o ckpt\humanparsing\parsing_atr.onnx
-curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_lip.onnx" -o ckpt\humanparsing\parsing_lip.onnx
-curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/densepose/model_final_162be9.pkl" -o ckpt\densepose\model_final_162be9.pkl
-curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose/ckpts/body_pose_model.pth" -o ckpt\openpose\ckpts\body_pose_model.pth
+git submodule update --init --recursive
 ```
 
-For Linux:
+Download the IDM-VTON preprocessing checkpoints (the repo only includes placeholders) from Hugging Face
+From repo root:
 ```bash
-curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_atr.onnx" -o ckpt/humanparsing/parsing_atr.onnx
-curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_lip.onnx" -o ckpt/humanparsing/parsing_lip.onnx
-curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/densepose/model_final_162be9.pkl" -o ckpt/densepose/model_final_162be9.pkl
-curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose/ckpts/body_pose_model.pth" -o ckpt/openpose/ckpts/body_pose_model.pth
+curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_atr.onnx" -o third_party/IDM-VTON/ckpt/humanparsing/parsing_atr.onnx
+curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_lip.onnx" -o third_party/IDM-VTON/ckpt/humanparsing/parsing_lip.onnx
+curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/densepose/model_final_162be9.pkl" -o third_party/IDM-VTON/ckpt/densepose/model_final_162be9.pkl
+curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose/ckpts/body_pose_model.pth" -o third_party/IDM-VTON/ckpt/openpose/ckpts/body_pose_model.pth
 ```
 
 ## Quick inference test
 Run the thin wrapper around IDM-VTON to bypass the original Gradio app and directly generate a try-on result:
 
 ```bash
-python inference_pair.py --person assets\test\person.jpeg --garment assets\test\shirt.jpg --desc "long sleeve blue shirt" --out outputs\tryon.png --out-mask outputs\tryon_mask.png
+python inference_pair.py --person assets/test/person.jpeg --garment assets/test/shirt.jpg --desc "long sleeve blue shirt" --out outputs/tryon.png --out-mask outputs/tryon_mask.png
 ```
 
 The script loads both images, executes OpenPose, human parsing, DensePose, then IDM-VTON, and saves the synthesized render plus mask under `outputs/`.
