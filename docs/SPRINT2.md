@@ -77,7 +77,7 @@ Because paired ground-truth may not always exist for our own images, we focus on
 - **CLIP-like similarity proxies**
   - output vs garment (garment fidelity proxy)
   - output vs text prompt (text alignment proxy)
-- **VLM rubric score** (optional evaluator; treated as a noisy judge)
+- **VLM rubric score** (optional evaluator: treated as a noisy judge)
   - garment present & recognizable?
   - logos/patterns preserved?
   - body/pose plausible (no missing limbs)?
