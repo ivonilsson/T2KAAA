@@ -1,5 +1,5 @@
 # Sprint 2
-This document details the achievables in the first sprint
+This document details the achievables in the second sprint
 
 ## Updated Objective
 Given:
