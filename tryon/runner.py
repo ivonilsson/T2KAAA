@@ -13,6 +13,102 @@ import numpy as np
 from torchvision import transforms
 from torchvision.transforms.functional import to_pil_image
 
+from PIL import ImageDraw
+
+SKELETON_EDGES = [
+    (0, 1), (1, 2), (2, 3), (3, 4),     # right arm
+    (1, 5), (5, 6), (6, 7),             # left arm
+    (1, 8), (8, 9), (9, 10),            # right leg
+    (1, 11), (11, 12), (12, 13),        # left leg
+    (0, 14), (14, 16),                  # right face
+    (0, 15), (15, 17),                  # left face
+]
+
+def draw_openpose_on_human(human_768x1024: Image.Image, keypoints: dict) -> Image.Image:
+    pts = keypoints["pose_keypoints_2d"]  # list of 18 [x, y, ...] or [x, y]
+    scale_x = 768.0 / 384.0
+    scale_y = 1024.0 / 512.0
+
+    coords = []
+    for p in pts:
+        x, y = float(p[0]), float(p[1])
+        x2 = x * scale_x
+        y2 = y * scale_y
+        coords.append((x2, y2))
+
+    out = human_768x1024.copy()
+    draw = ImageDraw.Draw(out)
+
+    # joints
+    r = 4
+    for x, y in coords:
+        if x == 0 and y == 0:
+            continue
+        draw.ellipse((x - r, y - r, x + r, y + r), outline="red", width=2)
+
+    # bones
+    for i, j in SKELETON_EDGES:
+        x1, y1 = coords[i]
+        x2, y2 = coords[j]
+        if (x1 == 0 and y1 == 0) or (x2 == 0 and y2 == 0):
+            continue
+        draw.line((x1, y1, x2, y2), fill="red", width=2)
+
+    return out
+
+
+# add these helpers near the top of the file
+def _ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _to_pil(img) -> Image.Image:
+    """
+    Accepts:
+      - PIL.Image.Image
+      - numpy.ndarray (H x W or H x W x C, uint8 or float in [0,1])
+      - torch.Tensor (C x H x W or 1 x C x H x W, float in [0,1] or [-1,1])
+    Returns a PIL.Image.
+    """
+    if isinstance(img, Image.Image):
+        return img
+
+    if isinstance(img, np.ndarray):
+        if img.dtype != np.uint8:
+            x = np.clip(img, 0.0, 1.0)
+            x = (x * 255).round().astype("uint8")
+        else:
+            x = img
+        if x.ndim == 2:
+            return Image.fromarray(x)
+        if x.ndim == 3:
+            return Image.fromarray(x)
+        raise ValueError(f"Unsupported numpy shape {x.shape}")
+
+    if torch.is_tensor(img):
+        x = img.detach().cpu()
+        # collapse batch if present
+        if x.ndim == 4:
+            x = x[0]
+        if x.ndim != 3:
+            raise ValueError(f"Unsupported tensor shape {x.shape}")
+        # C x H x W, assume [-1,1] or [0,1]
+        if x.min() < 0:
+            x = (x + 1) / 2
+        x = x.clamp(0, 1)
+        x = x.permute(1, 2, 0).numpy()
+        x = (x * 255).round().astype("uint8")
+        return Image.fromarray(x)
+
+    raise TypeError(f"Unsupported image type {type(img)}")
+
+
+def _save_debug_image(img, path: Path) -> None:
+    pil = _to_pil(img)
+    _ensure_dir(path.parent)
+    pil.save(path)
+
+
 IDM_ROOT = Path(__file__).resolve().parents[1] / "third_party" / "IDM-VTON"
 GRADIO_DEMO_ROOT = IDM_ROOT / "gradio_demo"
 
@@ -286,32 +382,80 @@ class IDMVTONTryOn:
         auto_mask: bool = True,
         auto_crop: bool = False,
         manual_mask_path: Optional[str] = None,
+        debug_dir: Optional[str] = None,
     ) -> Tuple[Image.Image, Image.Image]:
+        """
+        Run IDM-VTON on a single person + garment pair.
+
+        Adds:
+        - debug_dir: optional directory where intermediate images are saved
+        - snapshots of diffusion steps via diffusers callback
+        """
+
+        debug_root = Path(debug_dir) if debug_dir is not None else None
+        if debug_root is not None:
+            _ensure_dir(debug_root)
+
+        # ---------- load and (optionally) crop images ----------
+
         person_img_original = Image.open(person_image_path).convert("RGB")
-        garment_img = Image.open(garment_image_path).convert("RGB").resize((768, 1024))
+        garment_img = Image.open(garment_image_path).convert("RGB")
+
+        # IDM-VTON works at 768x1024 (W x H)
+        target_w, target_h = 768, 1024
 
         if auto_crop:
-            width, height = person_img_original.size
-            target_width = int(min(width, height * (3 / 4)))
-            target_height = int(min(height, width * (4 / 3)))
-            left = int((width - target_width) / 2)
-            top = int((height - target_height) / 2)
-            right = left + target_width
-            bottom = top + target_height
-            cropped = person_img_original.crop((left, top, right, bottom))
-            crop_size = cropped.size
-            human_img = cropped.resize((768, 1024))
+            # placeholder: keep full image but track crop info
+            cropped = person_img_original
+            human_img = cropped.resize((target_w, target_h))
+            crop_size: Optional[Tuple[int, int]] = cropped.size
+            left, top = 0, 0
         else:
-            human_img = person_img_original.resize((768, 1024))
+            human_img = person_img_original.resize((target_w, target_h))
             crop_size = None
-            left = top = 0
+            left, top = 0, 0
+
+        if debug_root is not None:
+            _save_debug_image(person_img_original, debug_root / "01_person_input.png")
+            _save_debug_image(garment_img, debug_root / "02_garment_input.png")
+            _save_debug_image(human_img, debug_root / "03_human_img_768x1024.png")
+
+        # ---------- mask and DensePose ----------
 
         manual_mask_img = None
-        if manual_mask_path:
-            manual_mask_img = Image.open(manual_mask_path)
+        if manual_mask_path is not None:
+            manual_mask_img = Image.open(manual_mask_path).convert("L")
 
         mask, mask_gray = self._compute_mask(human_img, manual_mask_img, auto_mask)
         pose_img = self._densepose(human_img)
+
+        if debug_root is not None:
+            _save_debug_image(mask, debug_root / "04_mask_binary.png")
+            _save_debug_image(mask_gray, debug_root / "05_mask_gray.png")
+            _save_debug_image(pose_img, debug_root / "06_densepose.png")
+            keypoints = self.openpose_model(human_img.resize((384, 512)))
+            kp_vis = draw_openpose_on_human(human_img, keypoints)
+            _save_debug_image(kp_vis, debug_root / "07_openpose_keypoints.png")
+            overlay = kp_vis.copy()
+            mask_rgba = mask.convert("L").resize((768, 1024))
+            overlay.putalpha(255)
+            # simple red mask overlay
+            red = Image.new("RGBA", overlay.size, (255, 0, 0, 120))
+            red.putalpha(mask_rgba.point(lambda v: int(v > 0) * 120))
+            overlay = Image.alpha_composite(overlay.convert("RGBA"), red)
+            _save_debug_image(overlay, debug_root / "08_openpose_keypoints_and_mask.png")
+
+        # ---------- tensors and text embeddings ----------
+
+        pipe = self.pipe  # lazy-loaded TryonPipeline
+
+        human_tensor = self.tensor_transform(human_img).unsqueeze(0).to(self.device, self.dtype)
+        cloth_tensor = self.tensor_transform(garment_img.resize((target_w, target_h))).unsqueeze(0).to(
+            self.device, self.dtype
+        )
+        pose_tensor = self.tensor_transform(pose_img).unsqueeze(0).to(self.device, self.dtype)
+
+        # mask stays as PIL for the pipeline; mask_gray is just for visualization
 
         (
             prompt_embeds,
@@ -319,44 +463,97 @@ class IDMVTONTryOn:
             pooled_prompt_embeds,
             negative_pooled_prompt_embeds,
             cloth_prompt_embeds,
-        ) = self._build_prompt_embeds(self.pipe, garment_description)
+        ) = self._build_prompt_embeds(pipe, garment_description)
 
-        pose_tensor = self.tensor_transform(pose_img).unsqueeze(0).to(self.device, self.dtype)
-        garment_tensor = self.tensor_transform(garment_img).unsqueeze(0).to(self.device, self.dtype)
+        # ---------- diffusion callback for intermediate steps ----------
 
-        generator = None
-        if seed is not None and seed >= 0:
-            generator = torch.Generator(self.device).manual_seed(seed)
+        debug_steps = {
+            0,
+            denoise_steps // 4,
+            denoise_steps // 2,
+            3 * denoise_steps // 4,
+            denoise_steps - 1,
+        }
+
+        def _decode_latents(latents: torch.Tensor) -> Iterable[Image.Image]:
+            lat = latents.detach().to(self.device)
+            scaling_factor = getattr(pipe.vae.config, "scaling_factor", 0.18215)
+            lat = lat / scaling_factor
+            with torch.no_grad():
+                imgs = pipe.vae.decode(lat).sample
+            imgs = (imgs / 2 + 0.5).clamp(0, 1)
+            imgs = imgs.cpu().permute(0, 2, 3, 1).numpy()
+            imgs = (imgs * 255).round().astype("uint8")
+            return [Image.fromarray(arr) for arr in imgs]
+
+        def _callback(step: int, timestep: int, latents: torch.FloatTensor) -> None:
+            if debug_root is None:
+                return
+            if step not in debug_steps:
+                return
+            for i, pil in enumerate(_decode_latents(latents)):
+                fname = f"20_denoise_step_{step:03d}_sample_{i}.png"
+                _save_debug_image(pil, debug_root / fname)
+
+        # ---------- run pipeline ----------
+
+        generator = torch.Generator(device=self.device).manual_seed(seed)
+
+        pipe_kwargs = dict(
+            prompt_embeds=prompt_embeds.to(self.device, self.dtype),
+            negative_prompt_embeds=negative_prompt_embeds.to(self.device, self.dtype),
+            pooled_prompt_embeds=pooled_prompt_embeds.to(self.device, self.dtype),
+            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds.to(self.device, self.dtype),
+            num_inference_steps=denoise_steps,
+            generator=generator,
+            strength=1.0,
+            pose_img=pose_tensor,
+            text_embeds_cloth=cloth_prompt_embeds.to(self.device, self.dtype),
+            cloth=cloth_tensor,
+            mask_image=mask,          # PIL mask
+            image=human_img,          # PIL human image
+            height=target_h,
+            width=target_w,
+            ip_adapter_image=garment_img,
+            guidance_scale=self.guidance_scale,
+        )
 
         with torch.no_grad():
-            with torch.autocast(device_type=self.device.type, enabled=self.device.type == "cuda", dtype=self.dtype):
-                images = self.pipe(
-                    prompt_embeds=prompt_embeds.to(self.device, self.dtype),
-                    negative_prompt_embeds=negative_prompt_embeds.to(self.device, self.dtype),
-                    pooled_prompt_embeds=pooled_prompt_embeds.to(self.device, self.dtype),
-                    negative_pooled_prompt_embeds=negative_pooled_prompt_embeds.to(self.device, self.dtype),
-                    num_inference_steps=denoise_steps,
-                    generator=generator,
-                    strength=1.0,
-                    pose_img=pose_tensor,
-                    text_embeds_cloth=cloth_prompt_embeds.to(self.device, self.dtype),
-                    cloth=garment_tensor,
-                    mask_image=mask,
-                    image=human_img,
-                    height=1024,
-                    width=768,
-                    ip_adapter_image=garment_img,
-                    guidance_scale=self.guidance_scale,
-                )[0]
+            autocast_on = self.device.type == "cuda"
+            with torch.autocast(
+                device_type=self.device.type, enabled=autocast_on, dtype=self.dtype
+            ):
+                if debug_root is not None:
+                    try:
+                        result = pipe(callback=_callback, callback_steps=1, **pipe_kwargs)
+                    except TypeError:
+                        # pipeline does not support callback (fallback)
+                        result = pipe(**pipe_kwargs)
+                else:
+                    result = pipe(**pipe_kwargs)
+
+        # diffusers-style output
+        if hasattr(result, "images"):
+            images = result.images
+        else:
+            images = result[0]
 
         result_img = images[0]
+
+        # ---------- undo crop (if any) and save final images ----------
+
         if auto_crop and crop_size is not None:
             pasted = result_img.resize(crop_size)
             person_img_original = person_img_original.copy()
             person_img_original.paste(pasted, (left, top))
             result_img = person_img_original
 
+        if debug_root is not None:
+            _save_debug_image(result_img, debug_root / "30_final_output.png")
+            _save_debug_image(mask_gray, debug_root / "31_final_mask_gray.png")
+
         return result_img, mask_gray
+
 
 
 @lru_cache(maxsize=1)

@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--guidance-scale", type=float, default=2.0, help="Guidance scale passed to pipeline")
     parser.add_argument("--offload", action="store_true", help="Enable sequential CPU offload to cut VRAM usage")
     parser.add_argument("--no-vae-slicing", action="store_true", help="Disable VAE slicing (enabled by default)")
+    parser.add_argument( "--debug-dir", default=None, help="Optional directory where intermediate images will be saved")
     return parser.parse_args()
 
 
@@ -60,6 +61,7 @@ def main() -> None:
         auto_mask=not args.no_auto_mask,
         auto_crop=args.auto_crop,
         manual_mask_path=args.manual_mask,
+        debug_dir=args.debug_dir,
     )
 
     result_path = Path(args.output)

@@ -23,8 +23,10 @@ def run_idm_vton(
     use_auto_mask: bool = True,
     use_auto_crop: bool = False,
     manual_mask_path: str | None = None,
+    debug_dir: str | None = None,
 ) -> Tuple[Image.Image, Image.Image]:
     """Run IDM-VTON on a single pair using the lightweight runner."""
+
 
     runner = _default_runner()
     return runner.run_pair(
@@ -36,4 +38,5 @@ def run_idm_vton(
         auto_mask=use_auto_mask,
         auto_crop=use_auto_crop,
         manual_mask_path=manual_mask_path,
+        debug_dir=debug_dir,
     )
