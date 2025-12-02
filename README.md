@@ -13,90 +13,67 @@
 ## Requirements
 This project currently **requires Python 3.10** for the IDM-VTON integration to work.
 
-On Windows it is recommended to use a dedicated virtual environment:
-
+Use virtual environment:
+Linux
 ```bash
-# From project root
-py -3.10 -m venv venv
+python -3.10 -m venv venv
+source venv/bin/activate
+```
+Windows
+```bash
+python -3.10 -m venv venv
 venv\Scripts\activate
 ```
 
-If you are on another OS or CPU-only setup, see the official install guide:
-https://pytorch.org/get-started/locally/
+Install pytorch
+```bash
+pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118
+```
 
-On windows, recommendation is to first run ```pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118``` for GPU supported Torch, followed by ```pip install -r requirements_vton.txt``` for the remaining dependencies.
+Then install the remaining dependencies:
+```bash
+pip install -r requirements_vton.txt
+```
 
-### IDM-VTON
-Added IDM-VTON as git submodule, after installing all required components, we are looking at this kind of disc space required:
+### IDM-VTON submodule setup
+IDM-VTON is included as a git submodule under `third_party/IDM-VTON`. After pulling the submodule, expect ~30–35 GB of disk usage once all checkpoints finish downloading:
 
-After installing Python dependencies and pulling the submodule, the first run will download large model weights from Hugging Face:
+- `diffusion_pytorch_model.bin` – ~12 GB
+- SDXL / IP-Adapter / VAE weights – ~16 GB combined
+- DensePose, OpenPose, human parsing checkpoints – ~1 GB total
+- Virtual environment and auxiliary packages – ~3–4 GB
 
-- diffusion_pytorch_model.bin – ~12 GB
+```bash
+git submodule update --init --recursive
+```
 
-- Additional SDXL / IP-Adapter / VAE weights – ~0.5 GB + 2.78 GB + 2.53 GB + 0.33 GB + 10.3 GB
+Download the IDM-VTON preprocessing checkpoints (the repo only includes placeholders) from Hugging Face
+From repo root:
+```bash
+curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_atr.onnx" -o third_party/IDM-VTON/ckpt/humanparsing/parsing_atr.onnx
+curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_lip.onnx" -o third_party/IDM-VTON/ckpt/humanparsing/parsing_lip.onnx
+curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/densepose/model_final_162be9.pkl" -o third_party/IDM-VTON/ckpt/densepose/model_final_162be9.pkl
+curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose/ckpts/body_pose_model.pth" -o third_party/IDM-VTON/ckpt/openpose/ckpts/body_pose_model.pth
+```
 
-- Human parsing / DensePose / OpenPose checkpoints – ~0.8–1 GB total
+## Quick inference test
+Run the thin wrapper around IDM-VTON to bypass the original Gradio app and directly generate a try-on result:
 
-- Plus a few GB for the virtual environment and packages
+```bash
+python inference_pair.py --person assets/test/person.jpeg --garment assets/test/shirt.jpg --desc "long sleeve blue shirt" --out outputs/tryon.png --out-mask outputs/tryon_mask.png
+```
 
-- In total, expect 30–35 GB disk usage for the full try-on pipeline.
+The script loads both images, executes OpenPose, human parsing, DensePose, then IDM-VTON, and saves the synthesized render plus mask under `outputs/`.
 
-#### IDM-VTON expects the following files in third_party/IDM-VTON/ckpt:
-ckpt/
-  densepose/
-    model_final_162be9.pkl
-  humanparsing/
-    parsing_atr.onnx
-    parsing_lip.onnx
-  openpose/
-    ckpts/
-      body_pose_model.pth
-
-The repo ships small placeholder text files with these names; they need to be overwritten with the real checkpoints. From third_party/IDM-VTON, run:
-
-```curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_atr.onnx" -o ckpt\humanparsing\parsing_atr.onnx```
-
-```curl -L "https://huggingface.co/yisol/IDM-VTON/resolve/main/humanparsing/parsing_lip.onnx" -o ckpt\humanparsing\parsing_lip.onnx```
-
-```curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/densepose/model_final_162be9.pkl" -o ckpt\densepose\model_final_162be9.pkl```
-
-```curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose/ckpts/body_pose_model.pth" -o ckpt\openpose\ckpts\body_pose_model.pth```
-
-### Test usage
-Small wrapper around IDM-VTON to bypass the Gradio app and directly run inference on a person + clothing image. Run from root directory with activated venv: ```python inference_pair.py --person assets\test\person.jpeg --garment assets\test\shirt.jpg --desc "long sleeve blue shirt" --out outputs\tryon.png --out-mask outputs\tryon_mask.png```
-
-This will:
-
-- Load the person and garment image
-
-- Run OpenPose, human parsing, DensePose and IDM-VTON
-
-- Save the try-on result to outputs\tryon.png
-
-## Data
-
-### NOT NEEDED FOR NOW MAYBE DELETE LATER
-Dataset can be aquired here:
-https://drive.google.com/file/d/1tLx8LRp-sxDp0EcYmYoV_vXdSc-jJ79w/view
-
-After download VITON-HD dataset, move vitonhd_test_tagged.json into the test folder, and move vitonhd_train_tagged.json into the train folder.
-
-Structure of the Dataset directory should be as follows. (according to https://github.com/yisol/IDM-VTON?tab=readme-ov-file)
-
-Structure of dataset:
-train
-|-- image
-|-- image-densepose
-|-- agnostic-mask
-|-- cloth
-|-- vitonhd_train_tagged.json
-
-test
-|-- image
-|-- image-densepose
-|-- agnostic-mask
-|-- cloth
-|-- vitonhd_test_tagged.json
+## Build and run
+1. **Clone and update submodules**
+  ```bash
+  git clone --recurse-submodules git@github.com:ivonilsson/T2KAAA.git
+  ```
+2. **Create a Python 3.10 virtual environment** (see Requirements section).
+3. **Install dependencies** with `pip install -r requirements_vton.txt` after installing the correct PyTorch build.
+4. **Download checkpoints** into `third_party/IDM-VTON/ckpt/` using the commands above.
+5. **Run inference (experiments to be added)** using `python inference_pair.py ...` 
 
 ## Attribution
 This project integrates IDM-VTON for virtual try-on:
@@ -104,6 +81,4 @@ This project integrates IDM-VTON for virtual try-on:
 Yisol et al., “IDM-VTON: Improving Diffusion Models for Authentic Virtual Try-on in the Wild” (ECCV 2024).
 Code: https://github.com/yisol/IDM-VTON
 
-The IDM-VTON code and checkpoints (under third_party/IDM-VTON) are licensed under
-CC BY-NC-SA 4.0 and may be used only for non-commercial purposes.
-See third_party/IDM-VTON/LICENSE.txt for full terms.
+The IDM-VTON code and checkpoints (under `third_party/IDM-VTON`) are licensed under CC BY-NC-SA 4.0 and may be used only for non-commercial purposes. See `third_party/IDM-VTON/LICENSE.txt` for full terms.
