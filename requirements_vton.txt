@@ -1,5 +1,5 @@
 absl-py==2.3.1
-accelerate==0.25.0
+accelerate==0.27.2
 addict==2.4.0
 aiofiles==23.2.1
 altair==5.5.0
@@ -100,7 +100,7 @@ tb-nightly==2.21.0a20251023
 tensorboard-data-server==0.7.2
 termcolor==3.2.0
 tifffile==2025.5.10
-tokenizers==0.19.1
+tokenizers==0.21.0
 tomli==2.3.0
 tomlkit==0.12.0
 torch==2.0.1+cu118
@@ -109,7 +109,7 @@ torchmetrics==1.2.1
 torchvision==0.15.2+cu118
 tqdm==4.66.1
 sentencepiece==0.2.0
-transformers==4.44.2
+transformers==4.49.0
 typer==0.20.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
