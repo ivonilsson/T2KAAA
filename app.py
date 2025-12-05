@@ -191,6 +191,77 @@ def generate_garment_description(image: Image.Image | None) -> str:
         print(f"[WARN] Failed to generate garment description: {exc}")
         return "a garment"
 
+def resize_for_vlm(image: Image.Image, size=(224, 224)) -> Image.Image:
+    return image.resize(size).convert("RGB")
+
+
+def generate_tryon_evaluation(output_image, model, processor: Image.Image) -> str:
+    if output_image is None:
+        return "No output image to evaluate."
+
+    instruction = (
+        "You are a professional fashion stylist and visual QA. "
+        "Look at the try-on result image and give a short, constructive evaluation "
+        "about: 1) how the garment fits the person (tight/loose/appropriate); "
+        "2) color harmony with skin/hair; 3) realism of the try-on (blending / visible artifacts); "
+        "and 4) one short suggestion to improve the result. "
+        "Keep it concise (about 30-60 words)."
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": output_image},
+                {"type": "text", "text": instruction},
+            ],
+        }
+    ]
+
+    try:
+        prompt = processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        
+        inputs = processor(
+            text=[prompt],
+            images=[output_image],
+            return_tensors="pt",
+        )
+        processed_inputs = {}
+        for key, value in inputs.items():
+            if hasattr(value, "to"):
+                if value.dtype in (torch.float16, torch.float32, torch.bfloat16):
+                    processed_inputs[key] = value.to(model.device, dtype=model.dtype)
+                else:
+                    processed_inputs[key] = value.to(model.device)
+            else:
+                processed_inputs[key] = value
+        inputs = processed_inputs
+
+        with torch.inference_mode():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=80,
+                temperature=0.2,
+                top_p=0.85,
+                do_sample=True,
+            )
+
+        prompt_len = inputs["input_ids"].shape[-1]
+        new_tokens = out[:, prompt_len:]
+        text = processor.batch_decode(new_tokens, skip_special_tokens=True)
+
+        return _clean_vlm_response(text[0])
+
+    except Exception as exc:
+        print(f"[WARN] Try-on eval failed: {exc}")
+        return "Evaluation failed."
+
+
+
 
 def _resolve_uploaded_paths(uploaded_files) -> List[Path]:
     paths: List[Path] = []
@@ -595,6 +666,8 @@ def start_tryon(editor_state, garment_files, processed_garments, is_checked, is_
 
     gallery_entries = []
     seed_value = None if seed is None else int(seed)
+    generated_images = []
+
     for idx, garment in enumerate(described_garments):
         garment_desc = garment.get("description") or "a garment"
         garment_image = _open_image(Path(garment["path"]))
@@ -611,10 +684,26 @@ def start_tryon(editor_state, garment_files, processed_garments, is_checked, is_
             int(denoise_steps),
             current_seed,
         )
+
+
+        output_image_small = resize_for_vlm(result_image)
+        generated_images.append(result_image)
         caption = f"{garment.get('label', Path(garment['path']).name)}: {garment_desc}"
         gallery_entries.append((result_image, caption))
+    
 
-    return gallery_entries, human_ctx["mask_gray"]
+    try:
+        model, processor = _load_vlm()
+    except Exception as exc:
+        print(f"[WARN] Failed to load VLM: {exc}")
+
+    vlm_comments = []
+    for img in generated_images:
+        small_img = resize_for_vlm(img)
+        vlm_comments.append(generate_tryon_evaluation(small_img, model, processor))
+
+    final_comment = "\n\n".join(vlm_comments)
+    return gallery_entries, human_ctx["mask_gray"], final_comment
 
 
 def _list_example_paths(folder: Path):
@@ -673,6 +762,7 @@ with image_blocks as demo:
         with gr.Column():
             masked_img = gr.Image(label="Masked image output", elem_id="masked-img")
         with gr.Column():
+            vlm_comment_box = gr.Textbox(label="VLM Try-on Evaluation", interactive=False)
             image_out = gr.Gallery(label="Try-on results", elem_id="output-img", columns=2, height=600)
 
     with gr.Column():
@@ -685,7 +775,7 @@ with image_blocks as demo:
     try_button.click(
         fn=start_tryon,
         inputs=[imgs, garment_files, garment_state, is_checked, is_checked_crop, denoise_steps, seed],
-        outputs=[image_out, masked_img],
+        outputs=[image_out, masked_img, vlm_comment_box],
         api_name='tryon'
     )
 
