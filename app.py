@@ -31,6 +31,8 @@ from typing import List
 import torch
 import os
 import gc
+import random
+import re
 from transformers import AutoTokenizer, AutoProcessor, AutoModelForCausalLM
 try:  # transformers>=4.47 adds native Qwen2.5-VL class
     from transformers import Qwen2_5_VLForConditionalGeneration
@@ -57,6 +59,40 @@ _vlm_model = None
 _vlm_processor = None
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+_VLM_MAX_NEW_TOKENS = 48
+_VLM_SCORE_PATTERN = re.compile(r"score\s*[:|-]?\s*(\d{1,2})", re.IGNORECASE)
+_CATALOG_ROOT = _PROJECT_ROOT / "data"
+_MAX_SELECTED_GARMENTS = 3
+_DEFAULT_SAMPLE_COUNT = 10
+
+
+def _list_catalog_categories() -> List[str]:
+    if not _CATALOG_ROOT.exists():
+        return []
+    return sorted(path.name for path in _CATALOG_ROOT.iterdir() if path.is_dir())
+
+
+def _find_category_images(category: str) -> List[Path]:
+    if not category:
+        return []
+    category_dir = _CATALOG_ROOT / category
+    if not category_dir.exists():
+        return []
+    return [
+        path
+        for path in category_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS
+    ]
+
+
+def _sample_catalog_images(category: str, sample_count: int) -> List[Path]:
+    paths = _find_category_images(category)
+    if not paths:
+        return []
+    sample_count = max(1, min(sample_count, len(paths)))
+    if len(paths) <= sample_count:
+        return random.sample(paths, len(paths))
+    return random.sample(paths, sample_count)
 
 
 def _vlm_dtype():
@@ -178,7 +214,7 @@ def generate_garment_description(image: Image.Image | None) -> str:
         with torch.inference_mode():
             generated_ids = model.generate(
                 **inputs,
-                max_new_tokens=80,
+                max_new_tokens=_VLM_MAX_NEW_TOKENS,
                 temperature=0.2,
                 top_p=0.85,
                 do_sample=True,
@@ -195,17 +231,17 @@ def resize_for_vlm(image: Image.Image, size=(224, 224)) -> Image.Image:
     return image.resize(size).convert("RGB")
 
 
-def generate_tryon_evaluation(output_image, model, processor: Image.Image) -> str:
+def generate_tryon_evaluation(output_image, model, processor) -> dict:
     if output_image is None:
-        return "No output image to evaluate."
+        return {"text": "No output image to evaluate.", "score": None}
+    if model is None or processor is None:
+        return {"text": "Evaluation unavailable.", "score": None}
 
     instruction = (
         "You are a professional fashion stylist and visual QA. "
         "Look at the try-on result image and give a short, constructive evaluation "
-        "about: 1) how the garment fits the person (tight/loose/appropriate); "
-        "2) color harmony with skin/hair; 3) realism of the try-on (blending / visible artifacts); "
-        "and 4) one short suggestion to improve the result. "
-        "Keep it concise (about 30-60 words)."
+        "about: 1) fit; 2) color harmony; 3) realism/blending; 4) one suggestion. "
+        "Respond in the format: 'Score: <1-10>/10 | Comment: <30-50 word critique>'."
     )
 
     messages = [
@@ -244,41 +280,96 @@ def generate_tryon_evaluation(output_image, model, processor: Image.Image) -> st
         with torch.inference_mode():
             out = model.generate(
                 **inputs,
-                max_new_tokens=80,
+                max_new_tokens=_VLM_MAX_NEW_TOKENS,
                 temperature=0.2,
                 top_p=0.85,
                 do_sample=True,
             )
 
-        prompt_len = inputs["input_ids"].shape[-1]
+        prompt_len = inputs["input_ids"].shape[-1] if "input_ids" in inputs else 0
         new_tokens = out[:, prompt_len:]
         text = processor.batch_decode(new_tokens, skip_special_tokens=True)
 
-        return _clean_vlm_response(text[0])
+        cleaned = _clean_vlm_response(text[0])
+        score, comment = _extract_vlm_score(cleaned)
+        if not comment:
+            comment = cleaned
+        return {"text": comment, "score": score}
 
     except Exception as exc:
         print(f"[WARN] Try-on eval failed: {exc}")
-        return "Evaluation failed."
+        return {"text": "Evaluation failed.", "score": None}
 
 
+def _extract_vlm_score(text: str) -> tuple[int | None, str]:
+    match = _VLM_SCORE_PATTERN.search(text)
+    if not match:
+        return None, text
+    try:
+        score = int(match.group(1))
+    except ValueError:
+        return None, text
+    score = max(1, min(score, 10))
+    cleaned = (text[:match.start()] + text[match.end():]).strip(" |-:")
+    return score, cleaned
 
 
-def _resolve_uploaded_paths(uploaded_files) -> List[Path]:
-    paths: List[Path] = []
-    if not uploaded_files:
-        return paths
-    for entry in uploaded_files:
-        candidate = None
-        if isinstance(entry, dict):
-            candidate = entry.get("name") or entry.get("path")
-        elif isinstance(entry, (str, Path)):
-            candidate = entry
-        if candidate:
-            candidate_path = Path(candidate)
-            if candidate_path.exists():
-                paths.append(candidate_path)
-    return paths
+def _build_gallery_annotations(gallery_entries, evaluations):
+    annotated = []
+    for (image, caption), evaluation in zip(gallery_entries, evaluations):
+        parts = [caption]
+        score = evaluation.get("score")
+        text = evaluation.get("text")
+        if score is not None:
+            parts.append(f"Score: {score}/10")
+        if text:
+            parts.append(f"VLM: {text}")
+        annotated.append((image, "\n\n".join(parts)))
+    return annotated
 
+
+def _summarize_vlm_recommendations(gallery_entries, evaluations):
+    best_score = None
+    best_indices: List[int] = []
+    for idx, evaluation in enumerate(evaluations):
+        score = evaluation.get("score")
+        if score is None:
+            continue
+        if best_score is None or score > best_score:
+            best_score = score
+            best_indices = [idx]
+        elif score == best_score:
+            best_indices.append(idx)
+
+    summary_lines = []
+    for idx, ((_, caption), evaluation) in enumerate(zip(gallery_entries, evaluations), start=1):
+        score_text = f"Score {evaluation['score']}/10" if evaluation.get("score") is not None else "Score N/A"
+        summary_lines.append(
+            f"{idx}. {caption} — {score_text}. {evaluation.get('text', 'No comment')}"
+        )
+
+    if best_score is None:
+        heading = "VLM feedback (no numeric scores provided)."
+    else:
+        winners = ", ".join(str(i + 1) for i in best_indices)
+        heading = f"Top choice(s): look {winners} with score {best_score}/10."
+
+    return heading + "\n\n" + "\n".join(summary_lines)
+
+
+def _offload_tryon_models_from_gpu():
+    if not torch.cuda.is_available():
+        return
+    try:
+        pipe.to("cpu")
+        pipe.unet_encoder.to("cpu")
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"[WARN] Failed to offload try-on pipe: {exc}")
+    try:
+        openpose_model.preprocessor.body_estimation.model.to("cpu")
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"[WARN] Failed to offload OpenPose: {exc}")
+    torch.cuda.empty_cache()
 
 def _open_image(path: Path) -> Image.Image | None:
     try:
@@ -286,26 +377,6 @@ def _open_image(path: Path) -> Image.Image | None:
     except Exception as exc:  # pylint: disable=broad-except
         print(f"[WARN] Failed to load garment image {path}: {exc}")
     return None
-
-
-def _gather_garment_images(uploaded_files) -> List[dict]:
-    path_entries: List[Path] = []
-    seen = set()
-    for candidate in _resolve_uploaded_paths(uploaded_files):
-        if candidate.suffix.lower() not in _IMAGE_EXTENSIONS:
-            continue
-        key = candidate.resolve()
-        if key in seen:
-            continue
-        seen.add(key)
-        path_entries.append(candidate)
-    garments: List[dict] = []
-    for path in path_entries:
-        image = _open_image(path)
-        if image is None:
-            continue
-        garments.append({"path": path, "label": path.name, "image": image})
-    return garments
 
 
 def _describe_garments(garments: List[dict]) -> List[dict]:
@@ -334,51 +405,79 @@ def _summarize_descriptions(items: List[dict]) -> str:
         lines.append(f"{idx}. {label}: {desc}")
     return "\n".join(lines)
 
+def _format_choice_label(path: Path, idx: int) -> str:
+    return f"#{idx}: {path.name}"
 
-def _process_garment_inputs(uploaded_files, current_state):
-    path_entries = _resolve_uploaded_paths(uploaded_files)
-    if not path_entries:
-        return "No garment files selected.", []
 
-    current_state = current_state or []
-    state_by_path = {item["path"]: item for item in current_state}
-    new_paths: List[Path] = []
-    ordered_items: List[dict] = []
-
-    for path in path_entries:
-        if path.suffix.lower() not in _IMAGE_EXTENSIONS:
+def load_catalog_samples(category: str, sample_count):
+    if not category:
+        raise gr.Error("Select a garment category to load samples.")
+    try:
+        sample_count_int = int(sample_count)
+    except (TypeError, ValueError):
+        sample_count_int = _DEFAULT_SAMPLE_COUNT
+    sample_paths = _sample_catalog_images(category, sample_count_int)
+    if not sample_paths:
+        raise gr.Error(f"No garments found under '{category}'.")
+    gallery_entries = []
+    metadata = []
+    checkbox_choices = []
+    for idx, path in enumerate(sample_paths, start=1):
+        image = _open_image(path)
+        if image is None:
             continue
-        str_path = str(path)
-        if str_path in state_by_path:
-            ordered_items.append(state_by_path[str_path])
-        else:
-            new_paths.append(path)
+        label = _format_choice_label(path, idx)
+        gallery_entries.append((image, label))
+        metadata.append({"choice": label, "path": str(path), "label": label})
+        checkbox_choices.append(label)
+    if not gallery_entries:
+        raise gr.Error("Failed to load catalog images. Please try again.")
+    summary = (
+        f"Loaded {len(gallery_entries)} looks from '{category}'. "
+        f"Select up to {_MAX_SELECTED_GARMENTS} garments below."
+    )
+    selection_reset = gr.update(choices=checkbox_choices, value=[])
+    return gallery_entries, metadata, selection_reset, summary
 
-    if new_paths:
-        new_garments = []
-        for path in new_paths:
-            image = _open_image(path)
-            if image is None:
-                continue
-            new_garments.append({"path": path, "label": path.name, "image": image})
-        if new_garments:
-            new_described = _describe_garments(new_garments)
-            state_by_path.update({item["path"]: item for item in new_described})
-        else:
-            _unload_vlm()
 
-    final_items = []
-    for path in path_entries:
-        str_path = str(path)
-        item = state_by_path.get(str_path)
-        if item:
-            final_items.append(item)
+def update_catalog_selection(selected_choices, sample_metadata):
+    sample_metadata = sample_metadata or []
+    selected_choices = selected_choices or []
+    limited = selected_choices[:_MAX_SELECTED_GARMENTS]
+    meta_map = {item["choice"]: item for item in sample_metadata}
+    summary_lines = []
+    for choice in limited:
+        meta = meta_map.get(choice)
+        if meta:
+            summary_lines.append(f"- {meta['label']}")
+    if not limited:
+        summary = "No garments selected."
+    else:
+        summary = "Selected garments:\n" + "\n".join(summary_lines)
+        if len(selected_choices) > _MAX_SELECTED_GARMENTS:
+            summary += f"\n(Only the first {_MAX_SELECTED_GARMENTS} selections are used.)"
+    return gr.update(value=limited), summary
 
-    if not final_items:
-        return "No garment files selected.", []
 
-    summary = _summarize_descriptions(final_items)
-    return summary, final_items
+def _prepare_selected_garments(selected_choices, catalog_metadata):
+    selected_choices = selected_choices or []
+    if not selected_choices:
+        raise gr.Error("Select up to three catalog garments before running try-on.")
+    catalog_metadata = catalog_metadata or []
+    meta_map = {item["choice"]: item for item in catalog_metadata}
+    garments = []
+    for choice in selected_choices:
+        meta = meta_map.get(choice)
+        if meta is None:
+            continue
+        image = _open_image(Path(meta["path"]))
+        if image is None:
+            print(f"[WARN] Catalog garment missing: {meta['path']}")
+            continue
+        garments.append({"path": meta["path"], "label": meta["label"], "image": image})
+    if not garments:
+        raise gr.Error("Unable to load the selected catalog garments.")
+    return garments
 
 
 def _prepare_human_context(editor_state, is_checked, is_checked_crop):
@@ -651,13 +750,9 @@ pipe = TryonPipeline.from_pretrained(
 pipe.unet_encoder = UNet_Encoder
 
 
-def start_tryon(editor_state, garment_files, processed_garments, is_checked, is_checked_crop, denoise_steps, seed):
-    described_garments = processed_garments or []
-    if not described_garments:
-        garments = _gather_garment_images(garment_files)
-        if not garments:
-            raise gr.Error("Please upload garment images or select a folder with garments.")
-        described_garments = _describe_garments(garments)
+def start_tryon(editor_state, selected_catalog_choices, catalog_metadata, run_vlm_eval, is_checked, is_checked_crop, denoise_steps, seed):
+    garments = _prepare_selected_garments(selected_catalog_choices, catalog_metadata)
+    described_garments = _describe_garments(garments)
 
     openpose_model.preprocessor.body_estimation.model.to(device)
     human_ctx = _prepare_human_context(editor_state, is_checked, is_checked_crop)
@@ -685,25 +780,30 @@ def start_tryon(editor_state, garment_files, processed_garments, is_checked, is_
             current_seed,
         )
 
-
-        output_image_small = resize_for_vlm(result_image)
         generated_images.append(result_image)
         caption = f"{garment.get('label', Path(garment['path']).name)}: {garment_desc}"
         gallery_entries.append((result_image, caption))
-    
 
-    try:
-        model, processor = _load_vlm()
-    except Exception as exc:
-        print(f"[WARN] Failed to load VLM: {exc}")
+    final_comment = "Enable VLM evaluation to get automated notes."
+    annotated_gallery = gallery_entries
+    if run_vlm_eval and generated_images:
+        _offload_tryon_models_from_gpu()
+        model = None
+        processor = None
+        try:
+            model, processor = _load_vlm()
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"[WARN] Failed to load VLM: {exc}")
+        evaluations = []
+        for img in generated_images:
+            small_img = resize_for_vlm(img)
+            evaluations.append(generate_tryon_evaluation(small_img, model, processor))
+        if evaluations:
+            annotated_gallery = _build_gallery_annotations(gallery_entries, evaluations)
+            final_comment = _summarize_vlm_recommendations(gallery_entries, evaluations)
+        _unload_vlm()
 
-    vlm_comments = []
-    for img in generated_images:
-        small_img = resize_for_vlm(img)
-        vlm_comments.append(generate_tryon_evaluation(small_img, model, processor))
-
-    final_comment = "\n\n".join(vlm_comments)
-    return gallery_entries, human_ctx["mask_gray"], final_comment
+    return annotated_gallery, human_ctx["mask_gray"], final_comment
 
 
 def _list_example_paths(folder: Path):
@@ -746,23 +846,48 @@ with image_blocks as demo:
             #)
 
         with gr.Column():
-            garment_files = gr.File(
-                label="Garment images (files or folders)",
-                file_count="multiple",
-                file_types=["image"],
-                type="filepath",
+            catalog_categories = _list_catalog_categories()
+            catalog_dropdown = gr.Dropdown(
+                label="Catalog category",
+                choices=catalog_categories,
+                value=catalog_categories[0] if catalog_categories else None,
+                interactive=True,
             )
-            garment_desc = gr.Textbox(
-                label="Garment descriptions",
-                value="No garment files selected.",
-                lines=8,
-                interactive=False,
+            sample_count = gr.Slider(
+                label="Sample size",
+                minimum=4,
+                maximum=12,
+                step=1,
+                value=_DEFAULT_SAMPLE_COUNT,
             )
-            garment_state = gr.State([])
+            load_samples_btn = gr.Button("Load catalog samples")
+            catalog_gallery = gr.Gallery(
+                label="Catalog preview",
+                columns=5,
+                height=400,
+                allow_preview=True,
+            )
+            selection_box = gr.CheckboxGroup(
+                label="Select up to three garments",
+                choices=[],
+                value=[],
+            )
+            selection_summary = gr.Markdown("No garments selected.")
+            catalog_samples_state = gr.State([])
         with gr.Column():
             masked_img = gr.Image(label="Masked image output", elem_id="masked-img")
         with gr.Column():
-            vlm_comment_box = gr.Textbox(label="VLM Try-on Evaluation", interactive=False)
+            run_vlm_eval = gr.Checkbox(
+                label="Run AI stylist evaluation (slower)",
+                info="Disable to skip the VLM judging step.",
+                value=True,
+            )
+            vlm_comment_box = gr.Textbox(
+                label="VLM Try-on Evaluation",
+                interactive=False,
+                lines=12,
+                max_lines=20,
+            )
             image_out = gr.Gallery(label="Try-on results", elem_id="output-img", columns=2, height=600)
 
     with gr.Column():
@@ -774,16 +899,23 @@ with image_blocks as demo:
 
     try_button.click(
         fn=start_tryon,
-        inputs=[imgs, garment_files, garment_state, is_checked, is_checked_crop, denoise_steps, seed],
+        inputs=[imgs, selection_box, catalog_samples_state, run_vlm_eval, is_checked, is_checked_crop, denoise_steps, seed],
         outputs=[image_out, masked_img, vlm_comment_box],
         api_name='tryon'
     )
 
-    garment_files.change(
-        fn=_process_garment_inputs,
-        inputs=[garment_files, garment_state],
-        outputs=[garment_desc, garment_state],
+    load_samples_btn.click(
+        fn=load_catalog_samples,
+        inputs=[catalog_dropdown, sample_count],
+        outputs=[catalog_gallery, catalog_samples_state, selection_box, selection_summary],
         queue=True,
+    )
+
+    selection_box.change(
+        fn=update_catalog_selection,
+        inputs=[selection_box, catalog_samples_state],
+        outputs=[selection_box, selection_summary],
+        queue=False,
     )
 
 image_blocks.launch(server_name="0.0.0.0", server_port=9090, share=True)
