@@ -59,11 +59,17 @@ _vlm_model = None
 _vlm_processor = None
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
-_VLM_MAX_NEW_TOKENS = 48
+_VLM_MAX_NEW_TOKENS = 128
 _VLM_SCORE_PATTERN = re.compile(r"score\s*[:|-]?\s*(\d{1,2})", re.IGNORECASE)
 _CATALOG_ROOT = _PROJECT_ROOT / "data"
 _MAX_SELECTED_GARMENTS = 3
 _DEFAULT_SAMPLE_COUNT = 10
+_CUSTOM_CSS_PATH = _PROJECT_ROOT / "assets" / "gradio_theme.css"
+
+try:
+    _CUSTOM_CSS = _CUSTOM_CSS_PATH.read_text(encoding="utf-8")
+except FileNotFoundError:
+    _CUSTOM_CSS = ""
 
 
 def _list_catalog_categories() -> List[str]:
@@ -437,7 +443,8 @@ def load_catalog_samples(category: str, sample_count):
         f"Select up to {_MAX_SELECTED_GARMENTS} garments below."
     )
     selection_reset = gr.update(choices=checkbox_choices, value=[])
-    return gallery_entries, metadata, selection_reset, summary
+    proceed_reset = gr.update(interactive=False)
+    return gallery_entries, metadata, selection_reset, summary, proceed_reset
 
 
 def update_catalog_selection(selected_choices, sample_metadata):
@@ -456,7 +463,8 @@ def update_catalog_selection(selected_choices, sample_metadata):
         summary = "Selected garments:\n" + "\n".join(summary_lines)
         if len(selected_choices) > _MAX_SELECTED_GARMENTS:
             summary += f"\n(Only the first {_MAX_SELECTED_GARMENTS} selections are used.)"
-    return gr.update(value=limited), summary
+    proceed_state = gr.update(interactive=bool(limited))
+    return gr.update(value=limited), summary, proceed_state
 
 
 def _prepare_selected_garments(selected_choices, catalog_metadata):
@@ -513,9 +521,6 @@ def _prepare_human_context(editor_state, is_checked, is_checked_crop):
         mask = mask.resize((768, 1024))
     else:
         mask = pil_to_binary_mask(manual_mask_img.resize((768, 1024)))
-    mask_gray = (1 - transforms.ToTensor()(mask)) * tensor_transfrom(human_img)
-    mask_gray = to_pil_image((mask_gray + 1.0) / 2.0)
-
     human_img_arg = _apply_exif_orientation(human_img.resize((384, 512)))
     human_img_arg = convert_PIL_to_numpy(human_img_arg, format="BGR")
 
@@ -540,7 +545,6 @@ def _prepare_human_context(editor_state, is_checked, is_checked_crop):
         "human_img_orig": human_img_orig,
         "human_img": human_img,
         "mask": mask,
-        "mask_gray": mask_gray,
         "pose_img": pose_img,
         "pose_tensor": pose_tensor,
         "crop_meta": crop_meta,
@@ -803,7 +807,7 @@ def start_tryon(editor_state, selected_catalog_choices, catalog_metadata, run_vl
             final_comment = _summarize_vlm_recommendations(gallery_entries, evaluations)
         _unload_vlm()
 
-    return annotated_gallery, human_ctx["mask_gray"], final_comment
+    return annotated_gallery, final_comment
 
 
 def _list_example_paths(folder: Path):
@@ -822,99 +826,142 @@ for ex_human in human_list_path:
     ex_dict['composite'] = None
     human_ex_list.append(ex_dict)
 
+
+def _panel_visibility(target: str):
+    target = (target or "").lower()
+    return (
+        gr.update(visible=target == "welcome"),
+        gr.update(visible=target == "catalog"),
+        gr.update(visible=target == "tryon"),
+    )
+
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
-    #gr.Markdown("## IDM-VTON 👕👔👚")
-    #gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
-    with gr.Row():
-        with gr.Column():
-            imgs = gr.ImageEditor(
-                sources='upload',
-                type="pil",
-                label='Human (auto mask enabled by default). Draw only if you want a custom mask.',
-                interactive=True,
-            )
-            with gr.Row():
+    if _CUSTOM_CSS:
+        gr.HTML(f"<style>{_CUSTOM_CSS}</style>")
+    catalog_categories = _list_catalog_categories()
+    catalog_samples_state = gr.State([])
+
+    with gr.Column(elem_id="welcome-panel", visible=True) as welcome_panel:
+        gr.Markdown("## Welcome to the T2KAAA showroom")
+        gr.Markdown(
+            "Explore curated garments, pick up to three looks, then head into our virtual fitting room to see them on you."
+        )
+        start_catalog_btn = gr.Button("Browse catalog looks", elem_id="cta-browse", variant="primary")
+
+    with gr.Column(elem_id="catalog-panel", visible=False) as catalog_panel:
+        gr.Markdown("### Step 1 · Browse the rack")
+        with gr.Row():
+            with gr.Column(scale=1, min_width=260):
+                catalog_dropdown = gr.Dropdown(
+                    label="Catalog category",
+                    choices=catalog_categories,
+                    value=catalog_categories[0] if catalog_categories else None,
+                    interactive=True,
+                )
+                sample_count = gr.Slider(
+                    label="Sample size",
+                    minimum=4,
+                    maximum=12,
+                    step=1,
+                    value=_DEFAULT_SAMPLE_COUNT,
+                )
+                load_samples_btn = gr.Button("Load catalog samples")
+                proceed_to_tryon_btn = gr.Button(
+                    "Proceed to virtual fitting room",
+                    elem_id="cta-to-tryon",
+                    interactive=False,
+                    variant="primary",
+                )
+            with gr.Column(scale=2):
+                catalog_gallery = gr.Gallery(
+                    label="Catalog preview",
+                    columns=5,
+                    height=420,
+                    allow_preview=True,
+                )
+        selection_box = gr.CheckboxGroup(
+            label="Select up to three garments",
+            choices=[],
+            value=[],
+        )
+        selection_summary = gr.Markdown("No garments selected.", elem_id="selection-summary")
+
+    with gr.Column(elem_id="tryon-panel", visible=False) as tryon_panel:
+        gr.Markdown("### Step 2 · Virtual fitting room")
+        back_to_catalog_btn = gr.Button("Back to catalog", variant="secondary")
+        with gr.Row():
+            with gr.Column(scale=1, min_width=320):
+                imgs = gr.ImageEditor(
+                    sources='upload',
+                    type="pil",
+                    label='Upload your photo (auto mask enabled by default).',
+                    interactive=True,
+                )
                 is_checked = gr.Checkbox(label="Use auto-generated mask", info="Recommended", value=True)
-            with gr.Row():
-                is_checked_crop = gr.Checkbox(label="Yes", info="Use auto-crop & resizing", value=False)
+                is_checked_crop = gr.Checkbox(label="Use smart crop", info="Centers the subject", value=False)
+                run_vlm_eval = gr.Checkbox(
+                    label="Run AI stylist evaluation",
+                    info="Disable to skip the VLM judging step.",
+                    value=True,
+                )
+                with gr.Accordion(label="Advanced Settings", open=False):
+                    with gr.Row():
+                        denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=30, step=1)
+                        seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
+                try_button = gr.Button("Generate try-on", elem_id="run-tryon-btn")
+            with gr.Column(scale=2):
+                image_out = gr.Gallery(
+                    label="Try-on results",
+                    elem_id="output-img",
+                    columns=2,
+                    height=620,
+                    allow_preview=True,
+                )
+                vlm_comment_box = gr.Textbox(
+                    label="AI Stylist summary",
+                    elem_id="stylist-summary-box",
+                    interactive=False,
+                    lines=14,
+                    max_lines=24,
+                )
 
-            #gr.Examples(
-            #    inputs=imgs,
-            #    examples_per_page=10,
-            #    examples=human_ex_list
-            #)
+    start_catalog_btn.click(
+        fn=lambda: _panel_visibility("catalog"),
+        outputs=[welcome_panel, catalog_panel, tryon_panel],
+        queue=False,
+    )
 
-        with gr.Column():
-            catalog_categories = _list_catalog_categories()
-            catalog_dropdown = gr.Dropdown(
-                label="Catalog category",
-                choices=catalog_categories,
-                value=catalog_categories[0] if catalog_categories else None,
-                interactive=True,
-            )
-            sample_count = gr.Slider(
-                label="Sample size",
-                minimum=4,
-                maximum=12,
-                step=1,
-                value=_DEFAULT_SAMPLE_COUNT,
-            )
-            load_samples_btn = gr.Button("Load catalog samples")
-            catalog_gallery = gr.Gallery(
-                label="Catalog preview",
-                columns=5,
-                height=400,
-                allow_preview=True,
-            )
-            selection_box = gr.CheckboxGroup(
-                label="Select up to three garments",
-                choices=[],
-                value=[],
-            )
-            selection_summary = gr.Markdown("No garments selected.")
-            catalog_samples_state = gr.State([])
-        with gr.Column():
-            masked_img = gr.Image(label="Masked image output", elem_id="masked-img")
-        with gr.Column():
-            run_vlm_eval = gr.Checkbox(
-                label="Run AI stylist evaluation (slower)",
-                info="Disable to skip the VLM judging step.",
-                value=True,
-            )
-            vlm_comment_box = gr.Textbox(
-                label="VLM Try-on Evaluation",
-                interactive=False,
-                lines=12,
-                max_lines=20,
-            )
-            image_out = gr.Gallery(label="Try-on results", elem_id="output-img", columns=2, height=600)
+    proceed_to_tryon_btn.click(
+        fn=lambda: _panel_visibility("tryon"),
+        outputs=[welcome_panel, catalog_panel, tryon_panel],
+        queue=False,
+    )
 
-    with gr.Column():
-        try_button = gr.Button(value="Try-on")
-        with gr.Accordion(label="Advanced Settings", open=False):
-            with gr.Row():
-                denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=30, step=1)
-                seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
+    back_to_catalog_btn.click(
+        fn=lambda: _panel_visibility("catalog"),
+        outputs=[welcome_panel, catalog_panel, tryon_panel],
+        queue=False,
+    )
 
     try_button.click(
         fn=start_tryon,
         inputs=[imgs, selection_box, catalog_samples_state, run_vlm_eval, is_checked, is_checked_crop, denoise_steps, seed],
-        outputs=[image_out, masked_img, vlm_comment_box],
+        outputs=[image_out, vlm_comment_box],
         api_name='tryon'
     )
 
     load_samples_btn.click(
         fn=load_catalog_samples,
         inputs=[catalog_dropdown, sample_count],
-        outputs=[catalog_gallery, catalog_samples_state, selection_box, selection_summary],
+        outputs=[catalog_gallery, catalog_samples_state, selection_box, selection_summary, proceed_to_tryon_btn],
         queue=True,
     )
 
     selection_box.change(
         fn=update_catalog_selection,
         inputs=[selection_box, catalog_samples_state],
-        outputs=[selection_box, selection_summary],
+        outputs=[selection_box, selection_summary, proceed_to_tryon_btn],
         queue=False,
     )
 

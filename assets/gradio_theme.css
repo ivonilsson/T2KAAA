@@ -1,0 +1,114 @@
+:root {
+  --t2k-bg: #0c0d17;
+  --t2k-card: #15172b;
+  --t2k-accent: #f7630c;
+  --t2k-accent-2: #f8d057;
+  --t2k-text: #f5f6fb;
+  --t2k-muted: #9ba0b8;
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  font-family: "Space Grotesk", "Poppins", "Helvetica Neue", sans-serif;
+}
+
+body {
+  background: radial-gradient(circle at top, rgba(247, 99, 12, 0.12), transparent 40%),
+              radial-gradient(circle at 20% 20%, rgba(248, 208, 87, 0.18), transparent 35%),
+              var(--t2k-bg);
+  color: var(--t2k-text);
+}
+
+.gradio-container {
+  background: transparent;
+}
+
+#cta-browse,
+#cta-to-tryon,
+#run-tryon-btn {
+  background: linear-gradient(120deg, var(--t2k-accent), var(--t2k-accent-2));
+  color: #0b0b12;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(247, 99, 12, 0.28);
+}
+
+#cta-browse:hover,
+#cta-to-tryon:hover,
+#run-tryon-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px rgba(247, 99, 12, 0.32);
+}
+
+#welcome-panel,
+#catalog-panel,
+#tryon-panel {
+  background: rgba(12, 13, 23, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: 0 30px 65px rgba(6, 7, 12, 0.6);
+}
+
+#welcome-panel h2,
+#catalog-panel h3,
+#tryon-panel h3 {
+  font-family: "Space Grotesk", "Poppins", sans-serif;
+  letter-spacing: 0.03em;
+}
+
+#selection-summary {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 18px;
+  border-radius: var(--radius-md);
+  color: var(--t2k-muted);
+}
+
+#output-img img {
+  border-radius: var(--radius-md);
+}
+
+.gradio-container textarea,
+.gradio-container input[type="text"],
+.gradio-container input[type="number"],
+.gradio-container input[type="password"],
+.gradio-container input[type="email"],
+.gradio-container select {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: var(--t2k-text) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+#stylist-summary-box textarea {
+  background: rgba(8, 10, 18, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: var(--t2k-text) !important;
+  min-height: 260px;
+  line-height: 1.45;
+  font-size: 0.95rem;
+}
+
+.gr-button-secondary {
+  border-radius: var(--radius-md);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.gradio-dropdown,
+.gradio-slider,
+.gradio-checkboxgroup,
+.gradio-gallery,
+.gradio-image {
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 900px) {
+  #catalog-panel,
+  #tryon-panel {
+    padding: 18px;
+  }
+
+  #catalog-panel .gr-gallery,
+  #tryon-panel .gr-gallery {
+    height: auto;
+  }
+}
