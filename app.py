@@ -246,11 +246,8 @@ def generate_tryon_evaluation(output_image, model, processor) -> dict:
     instruction = (
         "You are a professional fashion stylist and visual QA. "
         "Look at the try-on result image and give a short, constructive evaluation "
-<<<<<<< HEAD
         "about: 1) fit; 2) color harmony; 3) realism/blending; 4) one suggestion. "
         "Respond in the format: 'Score: <1-10>/10 | Comment: <30-50 word critique>'."
-=======
->>>>>>> 9261de8 (Clean ignore settings + update app.py)
     )
 
     messages = [
@@ -289,11 +286,7 @@ def generate_tryon_evaluation(output_image, model, processor) -> dict:
         with torch.inference_mode():
             out = model.generate(
                 **inputs,
-<<<<<<< HEAD
                 max_new_tokens=_VLM_MAX_NEW_TOKENS,
-=======
-                max_new_tokens=50,
->>>>>>> 9261de8 (Clean ignore settings + update app.py)
                 temperature=0.2,
                 top_p=0.85,
                 do_sample=True,
@@ -313,10 +306,7 @@ def generate_tryon_evaluation(output_image, model, processor) -> dict:
         print(f"[WARN] Try-on eval failed: {exc}")
         return {"text": "Evaluation failed.", "score": None}
 
-import torch
-import gc
 
-<<<<<<< HEAD
 def _extract_vlm_score(text: str) -> tuple[int | None, str]:
     match = _VLM_SCORE_PATTERN.search(text)
     if not match:
@@ -328,69 +318,7 @@ def _extract_vlm_score(text: str) -> tuple[int | None, str]:
     score = max(1, min(score, 10))
     cleaned = (text[:match.start()] + text[match.end():]).strip(" |-:")
     return score, cleaned
-=======
-def print_gpu_memory(prefix="[GPU]"):
-    if torch.cuda.is_available():
-        free, total = torch.cuda.mem_get_info()
-        used = total - free
-        print(f"{prefix} Total: {total/1e9:.2f} GB | Used: {used/1e9:.2f} GB | Free: {free/1e9:.2f} GB")
-    else:
-        print("[GPU] CUDA not available.")
->>>>>>> 9261de8 (Clean ignore settings + update app.py)
 
-def _unload_idm_vton(verbose=True):
-    global idm_vton_pipeline, idm_unet, idm_vae, idm_encoder, idm_controlnet, idm_processor
-
-    if verbose:
-        print("[INFO] === GPU memory BEFORE unload ===")
-        print_gpu_memory()
-
-    # List of all global IDM-VTON components
-    component_names = [
-        "idm_vton_pipeline",
-        "idm_unet",
-        "idm_vae",
-        "idm_encoder",
-        "idm_controlnet",
-        "idm_processor",
-    ]
-
-    # Delete components aggressively
-    for name in component_names:
-        if name in globals() and globals()[name] is not None:
-            if verbose:
-                print(f"[INFO] Unloading {name} ({type(globals()[name]).__name__})")
-            try:
-                del globals()[name]
-            except Exception as e:
-                print(f"[WARN] Could not delete {name}: {e}")
-            globals()[name] = None
-
-    # Deep GPU cleanup
-    if torch.cuda.is_available():
-        if verbose:
-            print("[INFO] Clearing GPU memory (cache + allocator)…")
-
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()        # frees interprocess memory
-        torch.cuda.synchronize()
-
-        # PyTorch 2.x allocator flush
-        try:
-            torch.cuda.memory._record_memory_history(enabled=False)
-        except:
-            pass
-
-    # Deep CPU GC cleanup
-    gc.collect()
-    gc.collect()  # run twice for stability
-
-    if verbose:
-        print("[INFO] === GPU memory AFTER unload ===")
-        print_gpu_memory()
-
-    if verbose:
-        print("[INFO] IDM-VTON successfully unloaded.")
 
 def _build_gallery_annotations(gallery_entries, evaluations):
     annotated = []
@@ -859,7 +787,6 @@ def start_tryon(editor_state, selected_catalog_choices, catalog_metadata, run_vl
         generated_images.append(result_image)
         caption = f"{garment.get('label', Path(garment['path']).name)}: {garment_desc}"
         gallery_entries.append((result_image, caption))
-<<<<<<< HEAD
 
     final_comment = "Enable VLM evaluation to get automated notes."
     annotated_gallery = gallery_entries
@@ -879,14 +806,6 @@ def start_tryon(editor_state, selected_catalog_choices, catalog_metadata, run_vl
             annotated_gallery = _build_gallery_annotations(gallery_entries, evaluations)
             final_comment = _summarize_vlm_recommendations(gallery_entries, evaluations)
         _unload_vlm()
-=======
-    
-    _unload_idm_vton()
-    try:
-        model, processor = _load_vlm()
-    except Exception as exc:
-        print(f"[WARN] Failed to load VLM: {exc}")
->>>>>>> 9261de8 (Clean ignore settings + update app.py)
 
     return annotated_gallery, final_comment
 
