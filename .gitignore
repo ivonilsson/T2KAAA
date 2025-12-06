@@ -207,3 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 /data
+
+third_party/
+.gradio/
+Dockerfile
+compose.yaml
