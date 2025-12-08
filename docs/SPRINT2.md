@@ -100,7 +100,7 @@ This allows:
 
 ## Sprint 2 checklist
 - [ ] GitHub: repository includes code for model building (training and evaluation code)
-- [ ] GitHub: repository includes code for infrastructure provision/deploy/installation MLFlow e.g., Docker compose scripts
+- [x] GitHub: repository includes code for infrastructure provision/deploy/installation MLFlow e.g., Docker compose scripts
 - [x] GitHub: repository includes test scripts and saved trained model
 - [x] GitHub: README.md improve previous project proposal description where necessary
 - [x] GitHub: README.md Pre-trained model/method and the AI component: In addition to description of the approach used by the selected pre-trained AI/ML models or algortithms, add details from system perspective of the AI component e.g., how users (end-user/other system) are envisioned to interact with the AI component, its inputs and outputs etc
