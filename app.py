@@ -13,6 +13,7 @@ import gradio as gr
 import tracking
 
 from services.catalog import (
+    ensure_garment_descriptions,
     list_catalog_categories,
     load_catalog_samples,
     update_catalog_selection,
@@ -120,7 +121,6 @@ with image_blocks as demo:
             choices=[],
             value=[],
         )
-        selection_summary = gr.Markdown("No garments selected.", elem_id="selection-summary")
 
     with gr.Column(elem_id="tryon-panel", visible=False) as tryon_panel:
         gr.Markdown("### Step 2 · Virtual fitting room")
@@ -145,6 +145,12 @@ with image_blocks as demo:
                         denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=30, step=1)
                         seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
                 try_button = gr.Button("Generate try-on", elem_id="run-tryon-btn")
+                garment_desc_box = gr.Textbox(
+                    label="Garment auto-description",
+                    interactive=False,
+                    lines=6,
+                    max_lines=10,
+                )
             with gr.Column(scale=2):
                 image_out = gr.Gallery(
                     label="Try-on results",
@@ -181,8 +187,46 @@ with image_blocks as demo:
         queue=False,
     )
 
-    try_button.click(
-        fn=start_tryon,
+    def _prepare_tryon_descriptions(selected_choices, catalog_metadata, selection_details):
+        updated_details, desc_summary = ensure_garment_descriptions(
+            selected_choices,
+            selection_details,
+            catalog_metadata,
+        )
+        return desc_summary, updated_details
+
+    def _run_tryon_job(
+        editor_state,
+        selected_choices,
+        catalog_metadata,
+        selection_details,
+        run_vlm_eval_flag,
+        auto_mask_flag,
+        auto_crop_flag,
+        denoise_steps_val,
+        seed_val,
+    ):
+        gallery, stylist_summary = start_tryon(
+            editor_state,
+            selected_choices,
+            catalog_metadata,
+            selection_details,
+            run_vlm_eval_flag,
+            auto_mask_flag,
+            auto_crop_flag,
+            denoise_steps_val,
+            seed_val,
+        )
+        return gallery, stylist_summary
+
+    tryon_event = try_button.click(
+        fn=_prepare_tryon_descriptions,
+        inputs=[selection_box, catalog_samples_state, selection_details_state],
+        outputs=[garment_desc_box, selection_details_state],
+    )
+
+    tryon_event.then(
+        fn=_run_tryon_job,
         inputs=[
             imgs,
             selection_box,
@@ -205,7 +249,6 @@ with image_blocks as demo:
             catalog_gallery,
             catalog_samples_state,
             selection_box,
-            selection_summary,
             proceed_to_tryon_btn,
             selection_details_state,
         ],
@@ -215,7 +258,7 @@ with image_blocks as demo:
     selection_box.change(
         fn=update_catalog_selection,
         inputs=[selection_box, catalog_samples_state, selection_details_state],
-        outputs=[selection_box, selection_summary, proceed_to_tryon_btn, selection_details_state],
+        outputs=[selection_box, proceed_to_tryon_btn, selection_details_state],
         queue=True,
     )
 

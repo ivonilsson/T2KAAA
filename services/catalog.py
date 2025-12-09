@@ -89,14 +89,10 @@ def load_catalog_samples(
         checkbox_choices.append(label)
     if not gallery_entries:
         raise gr.Error("Failed to load catalog images. Please try again.")
-    summary = (
-        f"Loaded {len(gallery_entries)} looks from '{category}'. "
-        f"Select up to {max_items} garments below."
-    )
     selection_reset = gr.update(choices=checkbox_choices, value=[])
     proceed_reset = gr.update(interactive=False)
     details_reset = {}
-    return gallery_entries, metadata, selection_reset, summary, proceed_reset, details_reset
+    return gallery_entries, metadata, selection_reset, proceed_reset, details_reset
 
 
 def update_catalog_selection(
@@ -121,32 +117,47 @@ def update_catalog_selection(
         entry["choice"] = choice
         entry["path"] = meta["path"]
         entry["label"] = meta["label"]
-        if not entry.get("description"):
-            image = open_image(Path(meta["path"]))
-            if image is None:
-                print(f"[WARN] Catalog garment missing for selection: {meta['path']}")
-                entry["description"] = "a garment"
-            else:
-                entry["description"] = generate_garment_description(image) or "a garment"
         selection_details[choice] = entry
 
-    summary_lines = []
-    for choice in limited:
-        meta = meta_map.get(choice)
-        if not meta:
-            continue
-        desc = selection_details.get(choice, {}).get("description") or "a garment"
-        summary_lines.append(f"- {meta['label']}: {desc}")
-
-    if not limited:
-        summary = "No garments selected."
-    else:
-        summary = "Selected garments:\n" + "\n".join(summary_lines)
-        if len(selected_choices) > max_items:
-            summary += f"\n(Only the first {max_items} selections are used.)"
-
     proceed_state = gr.update(interactive=bool(limited))
-    return gr.update(value=limited), summary, proceed_state, selection_details
+    return gr.update(value=limited), proceed_state, selection_details
+
+
+def ensure_garment_descriptions(
+    selected_choices,
+    selection_details,
+    catalog_metadata,
+):
+    selected_choices = selected_choices or []
+    if not selected_choices:
+        raise gr.Error("Select at least one garment before running try-on.")
+    catalog_metadata = catalog_metadata or []
+    selection_details = selection_details or {}
+    meta_map = {item["choice"]: item for item in catalog_metadata}
+
+    summary_lines = []
+    for idx, choice in enumerate(selected_choices, start=1):
+        meta = meta_map.get(choice)
+        if meta is None:
+            continue
+        entry = selection_details.get(choice, {}).copy()
+        entry["choice"] = choice
+        entry["path"] = meta["path"]
+        entry["label"] = meta["label"]
+        description = entry.get("description")
+        if not description or description == "a garment":
+            image = open_image(Path(meta["path"]))
+            if image is None:
+                print(f"[WARN] Catalog garment missing: {meta['path']}")
+                description = "a garment"
+            else:
+                description = generate_garment_description(image) or "a garment"
+            entry["description"] = description
+        selection_details[choice] = entry
+        summary_lines.append(f"{idx}. {meta['label']}: {entry['description']}")
+
+    summary_text = "\n".join(summary_lines) if summary_lines else "No garments selected."
+    return selection_details, summary_text
 
 
 def prepare_selected_garments(selected_choices, catalog_metadata, selection_details):
