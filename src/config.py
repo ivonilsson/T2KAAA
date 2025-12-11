@@ -1,6 +1,7 @@
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+SRC_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = SRC_ROOT.parent
 IDM_VTON_ROOT = PROJECT_ROOT / "third_party" / "IDM-VTON"
 GRADIO_DEMO_DIR = IDM_VTON_ROOT / "gradio_demo"
 
@@ -11,5 +12,5 @@ CATALOG_ROOT = PROJECT_ROOT / "data"
 MAX_SELECTED_GARMENTS = 3
 DEFAULT_SAMPLE_COUNT = 10
 
-CUSTOM_CSS_PATH = PROJECT_ROOT / "assets" / "gradio_theme.css"
+CUSTOM_CSS_PATH = SRC_ROOT / "assets" / "gradio_theme.css"
 EXAMPLE_PATH = GRADIO_DEMO_DIR / "example"

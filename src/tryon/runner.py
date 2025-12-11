@@ -109,7 +109,10 @@ def _save_debug_image(img, path: Path) -> None:
     pil.save(path)
 
 
-IDM_ROOT = Path(__file__).resolve().parents[1] / "third_party" / "IDM-VTON"
+# Discover repository roots relative to src layout
+SRC_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = SRC_ROOT.parent
+IDM_ROOT = PROJECT_ROOT / "third_party" / "IDM-VTON"
 GRADIO_DEMO_ROOT = IDM_ROOT / "gradio_demo"
 
 # Ensure the third_party repo is importable
