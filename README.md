@@ -127,8 +127,16 @@ This allows:
 ## Conclusion
 Our modular try-on service plus MLflow proved the core idea, trying on garments virtually through IDM-VTON while logging every prompt, latency, and stylist score, works reliably. We would have liked for this to become a web page similar to a real deployment, using IaC and other deployment techniques for full deployment checklist and scalability, instead of a Gradio interface. But we were limited by the compute infrastructure available to us.
 
-## Usage
+# Usage
 This project currently **requires Python 3.10** for the IDM-VTON integration to work.
+
+## Environments
+### nodocker
+
+```bash
+git clone https://github.com/ivonilsson/T2KAAA.git
+cd T2KAAA
+```
 
 Use virtual environment:
 Linux
@@ -152,6 +160,20 @@ Then install the remaining dependencies:
 pip install -r requirements_vton.txt
 ```
 
+### docker
+Or use the docker image in docker/Dockerfile:
+```bash
+docker build -t imagename docker/Dockerfile
+```
+Then run the image with a gpu:
+```
+docker run --gpus all -it --rm --name containername imagename
+
+# in container:
+git clone https://github.com/ivonilsson/T2KAAA.git
+cd T2KAAA
+```
+
 ### IDM-VTON submodule setup
 IDM-VTON is included as a git submodule under `third_party/IDM-VTON`. After pulling the submodule, expect ~30–35 GB of disk usage once all checkpoints finish downloading:
 
@@ -173,24 +195,21 @@ curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/densepos
 curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose/ckpts/body_pose_model.pth" -o third_party/IDM-VTON/ckpt/openpose/ckpts/body_pose_model.pth
 ```
 
-## Quick inference test
-Run the thin wrapper around IDM-VTON to bypass the original Gradio app and directly generate a try-on result:
-
+## Quick test and app launch
+Run the pytests:
 ```bash
-python inference_pair.py --person assets/test/person.jpeg --garment assets/test/shirt.jpg --desc "long sleeve blue shirt" --out outputs/tryon.png --out-mask outputs/tryon_mask.png
+python src/tests/test_entry.py
 ```
-
 The script loads both images, executes OpenPose, human parsing, DensePose, then IDM-VTON, and saves the synthesized render plus mask under `outputs/`.
 
-## Build and run
-1. **Clone and update submodules**
-  ```bash
-  git clone --recurse-submodules git@github.com:ivonilsson/T2KAAA.git
-  ```
-2. **Create a Python 3.10 virtual environment** (see Requirements section).
-3. **Install dependencies** with `pip install -r requirements_vton.txt` after installing the correct PyTorch build.
-4. **Download checkpoints** into `third_party/IDM-VTON/ckpt/` using the commands above.
-5. **Run inference (experiments to be added)** using `python inference_pair.py ...` 
+### If tests pass then
+to launch the Gradio ui
+```bash
+python src/app.py
+```
+
+### Else
+🤷‍♂️
 
 ## Attribution
 This project integrates IDM-VTON for virtual try-on:
