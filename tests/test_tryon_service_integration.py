@@ -49,7 +49,7 @@ def test_tryon_with_weights():
         selection_details,
         True,   # run VLM eval to cover full path
         True,   # auto mask
-        True,  # no auto crop to reduce randomness
+        True,  # auto crop to reduce randomness
         8,      # few steps to keep runtime manageable
         1234,
     )
