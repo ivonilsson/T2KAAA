@@ -155,7 +155,3 @@ RUN python3 -m pip install --no-cache-dir \
 	yacs==0.1.8 \
 	yapf==0.43.0 \
 	zipp==3.23.0
-
-
-COPY entrypoint_demo.sh /entrypoint_demo.sh
-RUN chmod +x /entrypoint_demo.sh
