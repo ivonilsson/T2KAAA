@@ -3,7 +3,7 @@ from pathlib import Path
 
 import config
 
-for path in (config.GRADIO_DEMO_DIR, config.IDM_VTON_ROOT, config.PROJECT_ROOT):
+for path in (config.SRC_ROOT, config.GRADIO_DEMO_DIR, config.IDM_VTON_ROOT, config.PROJECT_ROOT):
     str_path = str(path)
     if str_path not in sys.path:
         sys.path.insert(0, str_path)
