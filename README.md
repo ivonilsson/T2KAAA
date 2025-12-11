@@ -52,7 +52,7 @@ To fulfill the objectives stated above, this system uses pre-trained AI models a
   - 10. The VLM evaluates the generated images and score them from a stylistic point of view.
   - 11. Results are presented to the user in the gradio interface.
 
-![Architecture Overview](/docs/images/arch.png "Architecture overview")
+![Architecture Overview](/static/images/arch.png "Architecture overview")
 
 ---
 ## Pre-trained model/method and the AI component
