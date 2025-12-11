@@ -141,12 +141,12 @@ cd T2KAAA
 Use virtual environment:
 Linux
 ```bash
-python -3.10 -m venv venv
+python3.10 -m venv venv
 source venv/bin/activate
 ```
 Windows
 ```bash
-python -3.10 -m venv venv
+python3.10 -m venv venv
 venv\Scripts\activate
 ```
 
