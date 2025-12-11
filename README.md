@@ -127,18 +127,30 @@ This allows:
 ## Conclusion
 Our modular try-on service plus MLflow proved the core idea, trying on garments virtually through IDM-VTON while logging every prompt, latency, and stylist score, works reliably. We would have liked for this to become a web page similar to a real deployment, using IaC and other deployment techniques for full deployment checklist and scalability, instead of a Gradio interface. But we were limited by the compute infrastructure available to us.
 
-## Usage
+---
+## Deployment
 This project currently **requires Python 3.10** for the IDM-VTON integration to work.
+
+
+- Clone repo:
+```bash
+  git clone https://github.com/ivonilsson/T2KAAA.git
+``` 
+- Make docker image:
+```bash
+  docker build -t myimage:latest .
+``` 
+- Start and enter the container
 
 Use virtual environment:
 Linux
 ```bash
-python -3.10 -m venv venv
+python3.10 -m venv venv
 source venv/bin/activate
 ```
 Windows
 ```bash
-python -3.10 -m venv venv
+python3.10 -m venv venv
 venv\Scripts\activate
 ```
 
@@ -174,6 +186,12 @@ curl -L "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/ckpt/openpose
 ```
 
 ## Quick inference test
+Run:
+```bash
+  python app.py
+``` 
+Or
+
 Run the thin wrapper around IDM-VTON to bypass the original Gradio app and directly generate a try-on result:
 
 ```bash
@@ -182,12 +200,12 @@ python inference_pair.py --person assets/test/person.jpeg --garment assets/test/
 
 The script loads both images, executes OpenPose, human parsing, DensePose, then IDM-VTON, and saves the synthesized render plus mask under `outputs/`.
 
-## Build and run
+## Build and run 
 1. **Clone and update submodules**
   ```bash
   git clone --recurse-submodules git@github.com:ivonilsson/T2KAAA.git
   ```
-2. **Create a Python 3.10 virtual environment** (see Requirements section).
+2. **Create a Python 3.10 virtual environment** (see Deployment section).
 3. **Install dependencies** with `pip install -r requirements_vton.txt` after installing the correct PyTorch build.
 4. **Download checkpoints** into `third_party/IDM-VTON/ckpt/` using the commands above.
 5. **Run inference (experiments to be added)** using `python inference_pair.py ...` 
