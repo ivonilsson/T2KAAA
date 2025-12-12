@@ -163,7 +163,7 @@ pip install -r requirements_vton.txt
 ### docker
 Or use the docker image in docker/Dockerfile:
 ```bash
-docker build -t imagename docker/Dockerfile
+docker build -t imagename ./docker
 ```
 Then run the image with a gpu:
 ```
